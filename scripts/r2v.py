@@ -42,8 +42,9 @@ def default_action_desc(action_type: str) -> str | None:
     已知主分类给显式动作，未知分类返回 None（用 build_neutral_prompt 的通用默认）。
     """
     mapping = {
-        "walk": "walks continuously forward with a natural gait cycle, legs stepping in a steady "
-                "rhythm, feet lifting and planting, body weight shifting from foot to foot",
+        "walk": "walks continuously toward and past the camera with a natural gait cycle, legs "
+                "stepping forward in a steady rhythm, feet lifting and planting, body weight "
+                "shifting from foot to foot",
         "run": "runs continuously with a natural stride, arms swinging, legs driving forward steadily",
         "turn": "turns around smoothly and continuously, shifting body weight from foot to foot",
         "sit": "sits down and stands back up naturally and continuously",
@@ -72,9 +73,9 @@ def build_neutral_prompt(action_desc: str | None = None) -> str:
         "overcoat over a dark shirt, and a dark canvas messenger bag across his chest. His "
         "identity, face, hairstyle, glasses, and outfit must stay exactly consistent with "
         "<Picture 1>. He must NOT become the person appearing in <Video 1>.\n\n"
-        "<Video 1> is the motion reference. The character must reproduce the exact same motion "
-        "shown in <Video 1>, moving through the space with the limbs and body moving naturally "
-        "and continuously from start to finish; the character must NOT stand still.\n\n"
+        "<Video 1> is the motion reference. The character performs the exact same motion shown in "
+        f"<Video 1>: {action_desc}, continuously and naturally without stopping. The character "
+        "must NOT stand still.\n\n"
         "integrated_multimodal_description: A simple indoor scene with a neutral grey seamless "
         "background, soft even studio lighting, no props, no text, no logos. The character "
         f"{action_desc}, moving naturally and fluidly throughout the entire shot, with the camera "

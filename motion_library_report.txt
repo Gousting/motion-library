@@ -1,0 +1,159 @@
+# motion-library（动作库）第一期报告
+
+日期：2026-08-13
+仓库：https://github.com/Gousting/motion-library（私有，Gousting/motion-library）
+
+## 一、项目定位（已落地）
+
+动作库 = R2V 参考生视频的「动作模板」资产管理，与 image-gen 的风格 registry 对称：
+- 风格锁画面质感（image-gen 的 style registry）
+- 动作锁运动形态（本项目的 motion library）
+
+R2V 验证硬结论（2026-08-13）：动作迁移质量取决于参考视频的动作清晰度——
+全景背影走路 62 分（动作丢失），腿部步态特写（黑底）88 分（动作自然复刻）。
+故动作模板沉淀成资产，入库前必跑 R2V 验证实测迁移质量，不凭肉眼感觉定级。
+
+## 二、目录结构（实际落地）
+
+```
+motion-library/
+├── index.yaml                 # 总索引（按 action_type 分组的条目摘要，检索入口）
+├── README.md                  # 入库规范 + 验收标准 + 与 ai-video-pipeline 的关系
+├── config.yaml                # ComfyUI / R2V 模型 / VLM / 评级阈值（密钥占位符）
+├── .env                       # VLM 密钥（gitignore，永不提交）
+├── .gitignore                 # .env / work/ / .pytest_tmp / 脚手架
+├── pytest.ini                 # pytest 配置（basetemp=.pytest_tmp）
+├── conftest.py                # 项目根入 sys.path
+├── assets/
+│   └── test_character.png     # 固定测试角色图（阿迟东方面孔定妆图，复制自 character_ref.png）
+├── scripts/
+│   ├── ingest.py              # 入库脚本（核心）：预处理→R2V→VLM三项→评级→写 meta+index
+│   ├── preprocess.py          # ffmpeg 预处理（裁 3-5s/24fps/1344x768 保持比例 pad 黑边/裁剪去遮挡）
+│   ├── r2v.py                 # ComfyUI R2V 调用（MiniMaxH3ReferenceToVideo，只调 HTTP API）+ 中性场景 prompt
+│   ├── vlm_review.py          # VLM 三项审查（char_locked/motion_natural/spatial_stable）
+│   ├── rating.py              # 评级映射（score→grade 纯函数）+ index 登记
+│   ├── schemas.py             # meta.yaml 字段规范 + validate_meta 校验
+│   └── config.py              # config.yaml + .env 加载
+├── walk/
+│   └── walk_slow_legs_001/    # 种子条目
+│       ├── template.mp4       # 动作模板（1344x768@24fps 4s，腿部步态特写黑底）
+│       ├── source.mp4         # 原始素材（Pixabay Walk,Slow,Legs 1920x1080）
+│       └── meta.yaml          # 完整元数据
+└── tests/                     # pytest 单测（38 个全绿）
+    ├── test_rating.py         # 评级边界 79/80、69/70 + auto_grade + index 登记
+    ├── test_meta.py           # meta.yaml 字段完整性校验
+    ├── test_index.py          # index.yaml 登记逻辑（load/save roundtrip）
+    └── test_r2v.py            # R2V 工作流/中性 prompt/预处理命令纯函数（守护两个坑）
+```
+
+## 三、元数据规范（meta.yaml）
+
+每条动作 16 个顶层字段（15 标量 + r2v_checks 字典），字段表见 README「元数据规范」：
+id / action_type / sub_action / camera / body_part / clarity_grade / duration_sec /
+resolution / fps / source_type / source_url / license / style_pollution / r2v_verified /
+r2v_score / r2v_checks{char_locked, motion_natural, spatial_stable}
+
+- 枚举：camera=full/medium/closeup；body_part=full_body/half_body/legs/hands/face；
+  clarity_grade=A/B/C；source_type=stock/selfshot/reuse；license=pexels-free/self-shot/derived
+- 校验：scripts/schemas.py 的 validate_meta() 检查必填缺失、类型错误、枚举越界、
+  r2v_score 0-100、r2v_checks 三项完整性、id 无空白。
+
+index.yaml：按 action_type 分组，条目摘要 = id + sub_action + camera + body_part +
+clarity_grade + r2v_score + path，分组内按 grade(A/B/C) 再按 r2v_score 降序。
+
+## 四、ingest 流程（已实现并跑通）
+
+```
+python scripts/ingest.py --video <候选视频> --action-type walk --camera closeup \
+    --body-part legs --source-type stock --source-url <url> --license pexels-free \
+    [--sub-action slow_walk] [--style-pollution] [--seed N]
+```
+
+流程：
+1. 调 preprocess：ffmpeg 裁 3-5s / 24fps / 1344x768（保持比例 pad 黑边）/ 可选 crop 去遮挡
+2. 调 ComfyUI R2V：ref_images=[assets/test_character.png]，ref_videos=[模板转帧]，中性场景 prompt
+3. 调 VLM 三项审查（char_locked/motion_natural/spatial_stable）+ 总分
+4. 自动评级：score>=80 A；70-79 B；<70 C（打印「弃用」退出，不入库不写 meta）
+5. 写 meta.yaml + 登记 index.yaml + 落盘 template.mp4/source.mp4
+6. 打印入库结果（id + grade + score + 三项判断）
+
+- 复用已验证动作：`--verified-score N --verified-checks "char_locked=true,..."`（reuse 模式，跳过 R2V+VLM）
+- 评级脚本只调 ComfyUI HTTP API（MiniMaxH3ReferenceToVideo + ref2va 权重），不直接读写权重文件。
+- 已踩坑沉淀：LoadImagesFromFolderKJ 标 optional 实为必填（image_load_cap=0/start_index=0）；
+  autogrow 输入用扁平点号键 ref_images.ref_image_0 / ref_videos.ref_video_0。
+
+## 五、种子条目（walk_slow_legs_001，已入库）
+
+| 字段 | 值 |
+| --- | --- |
+| id | walk_slow_legs_001 |
+| action_type / sub_action | walk / slow_walk |
+| camera / body_part | closeup / legs |
+| clarity_grade | A |
+| r2v_score | 88 |
+| r2v_checks | char_locked=true, motion_natural=true, spatial_stable=true |
+| source_type / license | reuse / derived |
+| source_url | https://pixabay.com/videos/walk-slow-legs-feet-shoes-47129/ |
+| template.mp4 | 732955 字节（与原验证产物 motion_template_legs.mp4 字节一致） |
+| source.mp4 | 2673547 字节（原 raw motion_raw_legs.mp4） |
+
+入库命令（reuse 模式，复用之前 R2V 验证的 88 分）：
+```
+python scripts/ingest.py --video <motion_template_legs.mp4> --source-file <motion_raw_legs.mp4> \
+    --action-type walk --sub-action slow_walk --camera closeup --body-part legs \
+    --source-type reuse --source-url "https://pixabay.com/videos/walk-slow-legs-feet-shoes-47129/" \
+    --license derived --id walk_slow_legs_001 \
+    --verified-score 88 --verified-checks "char_locked=true,motion_natural=true,spatial_stable=true"
+```
+
+## 六、评级映射规则（纯函数，已单测）
+
+score_to_grade(score)：>=80 → A；70-79 → B；<70 → C（单测覆盖边界 79/80、69/70）。
+auto_grade(score, checks)：
+- score < 70 → C，弃用（不入库）
+- 70-79 → B（标注风险）
+- >=80 且三项全 true → A；任一 false → 降级 B（动作迁移不干净，标注风险）
+
+## 七、与 ai-video-pipeline 的关系（已落地）
+
+ai-video-pipeline 出片时「风格名 + 动作 ID」一起传：风格名→image-gen 的 style registry
+（锁画面质感），动作 ID→本项目的 index.yaml 索引（锁运动形态）。
+已在 ai-video-pipeline README.md 加依赖说明并 push（commit ea63792）。
+
+## 八、验证结果（已实现项）
+
+1. pytest 全绿：38 passed（评级边界、meta 校验、index 登记、R2V 工作流/中性 prompt/预处理命令纯函数）。
+2. 种子入库真实跑通：reuse 模式产出 meta.yaml + template.mp4 + index 登记，全字段校验通过。
+3. 全链路 smoke 测试（preprocess→R2V→VLM→评级→弃用判断）真实跑通 5 次，均正确产出：
+   - preprocess 从 raw 源（1920x1080@30fps 10.27s）复现的 template.mp4 与原验证产物字节一致（732955B）；
+   - R2V 经 ComfyUI HTTP API 生成结果（~800KB mp4，96 帧），角色锁定、空间稳定均 true；
+   - VLM 三项审查正常，score<70 正确走「弃用」路径（不入库不写 meta）。
+
+4. 【关键发现】中性场景动作迁移偏弱：
+   用同一动作模板、同一测试角色图、同一种子 20260814（原 88 分那次所用种子），
+   仅把 prompt 场景从「雨夜便利店（原 88 分验证）」换成「简洁室内中性灰背景」，
+   动作迁移质量显著下降（5 次 smoke 得分 45/55/55/55/48，motion_natural 均 false，
+   角色僵立只推镜），而角色锁定、空间稳定仍 true。
+   说明：R2V 动作迁移对 prompt 场景/运镜描述高度敏感，「中性灰室内 + 静态构图」易触发
+   模型进入「静态肖像」模式，忽略参考视频的动作信号。
+   已据实迭代中性场景 prompt（移除「stands centered/centered in frame」、显式写
+   「must NOT stand still」、加「walks toward and past the camera + camera tracking backward」、
+   把动作描述写进 <Video 1> 段），但仍未复现 88 分。
+
+   结论：种子 walk_slow_legs_001 的 r2v_score=88 来自之前「雨夜便利店」场景的验证（按任务书
+   「meta 写 r2v_score=88」指示），与中性场景评级标准并存。中性场景评级标准（任务书硬性设计，
+   为避免复杂场景干扰动作评分）在当前 R2V 模型下对动作迁移偏保守，后续动作入库时
+   中性场景评分可能系统性偏低——这是需要在下一期继续调优（场景措辞 / 多 seed 平均 / 阈值标定）
+   的已知点，不在本期改动范围。
+
+## 九、commit 列表
+
+motion-library（origin/main）：
+- caab014 任务一：初始化动作库结构 + 规范文档（README/index.yaml/config.yaml/test_character.png）
+- 9b2e3a4 任务二：元数据规范 scripts/schemas.py（meta.yaml 字段 + validate_meta 校验）
+- 46d1c06 任务三：ingest.py 入库脚本 + 支撑模块 config/rating/preprocess/r2v/vlm_review
+- bf2a2ca 任务四：种子动作入库 walk_slow_legs_001（score=88/A/reuse）+ probe_video 改 JSON 解析
+- 2e53a7e 任务六：pytest 单测（评级边界 79/80 69/70 + meta 校验 + index 登记 + R2V 工作流）+ 中性 prompt 修正
+
+ai-video-pipeline（origin/main）：
+- ea63792 README: 标注出片动作模板依赖 Gousting/motion-library（动作 ID 索引），风格名 + 动作 ID 一起传
