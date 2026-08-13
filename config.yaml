@@ -1,0 +1,55 @@
+# motion-library 动作库配置
+#
+# 安全约定：api_key 一律用占位符入库，真实值放项目根目录 `.env`
+# （.env 已被 .gitignore 排除，永不提交）。
+# .env 里用大写环境变量名覆盖，例如：
+#   MOTIONLIB_VLM_API_KEY=sk-xxxx
+
+comfyui:
+  url: "http://127.0.0.1:8188"   # 本地 ComfyUI 地址（评级脚本只调 HTTP API，不读写权重文件）
+  poll_interval: 10              # 轮询间隔（秒）
+  poll_timeout: 7200             # 单次 R2V 最长等待（秒），ref2va 权重首次加载 + 采样较慢
+
+# R2V 模型文件（按名加载，物理位置对脚本透明，与 image-gen 调 Z-Image 一个道理）
+r2v:
+  # 节点：MiniMaxH3ReferenceToVideo（R2V），不是 MiniMaxH3ImageToVideo（I2V）
+  unet_name: "minimax_h3_ref2va_pruned_int8_convrot.safetensors"  # UNETLoader 按名加载
+  clip_name: "qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors"
+  video_vae: "minimax_h3_video_vae_fp16.safetensors"
+  audio_vae: "minimax_h3_audio_vae_fp32.safetensors"
+  width: 1344
+  height: 768
+  length: 124                    # ≈5s@24fps
+  fps: 24
+  steps: 25
+  denoise: 1.0
+  sampler: "res_multistep"
+  scheduler: "simple"
+  ref_image_size: "match"        # match（快；身份保真足够），未用 max
+
+# 固定测试角色图（评级标准参照，保证不同动作模板之间可比）
+assets:
+  test_character: "assets/test_character.png"
+
+# VLM 三项审查（char_locked / motion_natural / spatial_stable）
+vlm:
+  base_url: "https://opencode.ai/zen/go/v1"
+  api_key: "YOUR_VLM_API_KEY"    # 占位符，真实值放 .env: MOTIONLIB_VLM_API_KEY
+  model: "qwen3.8-max"
+
+# 评级阈值（入库判定）
+rating:
+  a_threshold: 80                # score >= 80 → A 级
+  b_threshold: 70                # 70 <= score < 80 → B 级（标注风险）
+                                 # score < 70 → C 级弃用（不入库不写 meta）
+
+# 预处理（ffmpeg：裁 3-5s / 24fps / 1344x768 保持比例 pad 黑边）
+preprocess:
+  duration_sec: 4.0
+  fps: 24
+  width: 1344
+  height: 768
+  trim_start: null               # null=居中裁剪；否则从该秒开始裁
+
+output:
+  work_dir: "work"               # R2V 验证中间产物（拆帧 / 结果视频 / 审查 JSON），已 gitignore
