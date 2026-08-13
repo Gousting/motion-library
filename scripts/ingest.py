@@ -40,7 +40,7 @@ import yaml  # noqa: E402
 from scripts import rating, schemas  # noqa: E402
 from scripts.config import get_vlm_api_key, load_config  # noqa: E402
 from scripts.preprocess import preprocess_video, probe_video  # noqa: E402
-from scripts.r2v import run_r2v  # noqa: E402
+from scripts.r2v import default_action_desc, run_r2v  # noqa: E402
 from scripts.vlm_review import review_motion  # noqa: E402
 
 
@@ -153,6 +153,7 @@ def run(argv=None) -> int:
     ap.add_argument("--start", type=float, default=None, help="裁剪起点（秒），缺省居中/0")
     ap.add_argument("--crop", default=None, help="去遮挡裁剪 W:H:X:Y")
     ap.add_argument("--seed", type=int, default=None, help="R2V 随机种子")
+    ap.add_argument("--action-desc", default=None, help="动作描述（R2V prompt 用，缺省用通用持续运动描述）")
     ap.add_argument("--source-file", default=None, help="原始素材（落盘为 source.mp4，reuse 模式可选）")
     ap.add_argument("--verified-score", type=int, default=None, help="复用已跑 R2V 的评分（reuse 模式）")
     ap.add_argument("--verified-checks", default=None,
@@ -223,7 +224,7 @@ def run(argv=None) -> int:
             motion_video=template_src,
             out_path=r2v_result_path,
             comfy_url=comfy_url,
-            action_desc=f"{args.sub_action} {args.body_part} motion",
+            action_desc=args.action_desc or default_action_desc(args.action_type),
             seed=args.seed,
             steps=int(r2v_cfg.get("steps", 25)),
             length=int(r2v_cfg.get("length", 124)),

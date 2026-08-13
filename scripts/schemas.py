@@ -8,7 +8,7 @@
 
 from __future__ import annotations
 
-# ---- 字段分类（全部 17 个字段，见 README「元数据规范」表）----
+# ---- 字段分类（16 个顶层字段：15 标量 + r2v_checks 字典，见 README「元数据规范」表）----
 STR_FIELDS: tuple[str, ...] = (
     "id",
     "action_type",

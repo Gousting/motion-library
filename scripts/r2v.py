@@ -35,12 +35,36 @@ POLL_INTERVAL = 10
 POLL_TIMEOUT = 7200         # 2 小时（ref2va 首次加载权重 + 采样较慢）
 
 
-def build_neutral_prompt(action_desc: str = "the natural motion shown in <Video 1>") -> str:
+def default_action_desc(action_type: str) -> str | None:
+    """按主分类给一个动作描述（动词短语），用于中性场景 R2V prompt 的 motion 描述。
+
+    R2V 动作迁移对 prompt 里的动作描述敏感（实测：写成 ``stands centered`` 会僵立只推镜）。
+    已知主分类给显式动作，未知分类返回 None（用 build_neutral_prompt 的通用默认）。
+    """
+    mapping = {
+        "walk": "walks continuously forward with a natural gait cycle, legs stepping in a steady "
+                "rhythm, feet lifting and planting, body weight shifting from foot to foot",
+        "run": "runs continuously with a natural stride, arms swinging, legs driving forward steadily",
+        "turn": "turns around smoothly and continuously, shifting body weight from foot to foot",
+        "sit": "sits down and stands back up naturally and continuously",
+        "hand": "moves the hands naturally and continuously in the gesture shown in <Video 1>",
+        "flip": "performs the flipping motion naturally and continuously",
+        "jump": "jumps naturally and repeatedly, bending the knees and pushing off the ground",
+        "gesture": "gestures naturally and continuously with the arms and hands",
+        "dance": "dances naturally and continuously, moving the whole body in a steady rhythm",
+    }
+    return mapping.get(action_type)
+
+
+def build_neutral_prompt(action_desc: str | None = None) -> str:
     """构造中性场景（简洁室内、中性灰背景）的 R2V ref 格式 prompt。
 
     评级标准化：场景固定中性，避免复杂场景（如雨夜便利店）的生成质量干扰动作评分。
-    <Picture 1> 锁角色身份，<Video 1> 锁动作，显式分配职责。
+    但动作描述必须是显式的「持续运动」动词短语，否则模型倾向僵立只推镜（实测踩坑）。
+    ``<Picture 1>`` 锁角色身份，``<Video 1>`` 锁动作，显式分配职责。
     """
+    if not action_desc:
+        action_desc = "performs the motion from <Video 1> continuously and fluidly"
     return (
         "<Picture 1> is the character identity reference. The character in this shot is Achi, "
         "a lean young man in his late twenties with East Asian features, slightly messy black "
@@ -48,12 +72,13 @@ def build_neutral_prompt(action_desc: str = "the natural motion shown in <Video 
         "overcoat over a dark shirt, and a dark canvas messenger bag across his chest. His "
         "identity, face, hairstyle, glasses, and outfit must stay exactly consistent with "
         "<Picture 1>. He must NOT become the person appearing in <Video 1>.\n\n"
-        "<Video 1> is the motion reference. The character performs the exact same motion shown "
-        f"in <Video 1>: {action_desc}.\n\n"
+        "<Video 1> is the motion reference. The character must reproduce the exact same motion "
+        "shown in <Video 1>, moving through the space with the limbs and body moving naturally "
+        "and continuously from start to finish; the character must NOT stand still.\n\n"
         "integrated_multimodal_description: A simple indoor scene with a neutral grey seamless "
-        "background, soft even studio lighting, no props, no text, no logos. The character stands "
-        "centered and performs the exact motion from <Video 1>, naturally and continuously, in a "
-        "style consistent with <Picture 1>.\n\n"
+        "background, soft even studio lighting, no props, no text, no logos. The character "
+        f"{action_desc}, moving naturally and fluidly throughout the entire shot, with the camera "
+        "gently tracking backward to follow the motion, in a style consistent with <Picture 1>.\n\n"
         "overall_soundscape: N/A\n\n"
         "non_diegetic_music: N/A"
     )
@@ -190,7 +215,7 @@ def run_r2v(
     motion_video: Path,
     out_path: Path,
     comfy_url: str,
-    action_desc: str = "the natural motion shown in <Video 1>",
+    action_desc: str | None = None,
     seed: int | None = None,
     steps: int = DEFAULT_STEPS,
     length: int = DEFAULT_LENGTH,
