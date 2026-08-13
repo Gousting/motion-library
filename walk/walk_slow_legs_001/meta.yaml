@@ -1,0 +1,19 @@
+id: walk_slow_legs_001
+action_type: walk
+sub_action: slow_walk
+camera: closeup
+body_part: legs
+clarity_grade: A
+duration_sec: 4.0
+resolution: 1344x768
+fps: 24
+source_type: reuse
+source_url: https://pixabay.com/videos/walk-slow-legs-feet-shoes-47129/
+license: derived
+style_pollution: false
+r2v_verified: true
+r2v_score: 88
+r2v_checks:
+  char_locked: true
+  motion_natural: true
+  spatial_stable: true

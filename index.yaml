@@ -1,14 +1,10 @@
-# motion-library 动作库总索引（检索入口）
-# 按 action_type 分组，每条为动作模板的摘要（id + camera + clarity_grade + r2v_score + 路径）。
-# 完整元数据见各条目目录下的 meta.yaml。
-#
-# 字段说明：
-#   id            动作唯一标识（也是 ai-video-pipeline 出片时传的「动作 ID」）
-#   sub_action    子动作描述
-#   camera        full / medium / closeup
-#   body_part     full_body / half_body / legs / hands / face
-#   clarity_grade A / B / C（A=肢体特写无遮挡背景干净；B=中景或轻微遮挡；C=全景背影弃用）
-#   r2v_score     R2V 实测迁移评分（0-100）
-#   path          条目目录（相对项目根）
 version: 1
-entries: {}
+entries:
+  walk:
+  - id: walk_slow_legs_001
+    sub_action: slow_walk
+    camera: closeup
+    body_part: legs
+    clarity_grade: A
+    r2v_score: 88
+    path: walk/walk_slow_legs_001

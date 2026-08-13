@@ -66,39 +66,39 @@ def run_cmd(cmd: list[str]) -> None:
 
 
 def probe_video(path: Path) -> dict:
-    """ffprobe 读回 duration / width / height / fps。"""
+    """ffprobe 读回 duration / width / height / fps（JSON 输出，字段定位稳健）。"""
+    import json
+
     out = subprocess.run(
         ["ffprobe", "-v", "error", "-select_streams", "v:0",
-         "-show_entries", "stream=width,height,r_frame_rate",
-         "-show_entries", "format=duration",
-         "-of", "default=noprint_wrappers=1:nokey=1", str(path)],
+         "-show_entries", "stream=width,height,avg_frame_rate:format=duration",
+         "-of", "json", str(path)],
         capture_output=True, text=True, encoding="utf-8", errors="replace",
     )
-    lines = [ln.strip() for ln in out.stdout.splitlines() if ln.strip()]
     try:
-        duration = float(lines[0])
-    except (IndexError, ValueError):
+        data = json.loads(out.stdout)
+    except json.JSONDecodeError:
+        data = {}
+    stream = (data.get("streams") or [{}])[0]
+    fmt = data.get("format") or {}
+    try:
+        width = int(stream.get("width", 0) or 0)
+    except (TypeError, ValueError):
+        width = 0
+    try:
+        height = int(stream.get("height", 0) or 0)
+    except (TypeError, ValueError):
+        height = 0
+    num, _, den = str(stream.get("avg_frame_rate", "0/1")).partition("/")
+    try:
+        fps = round(float(num) / float(den), 2) if float(den) else 0.0
+    except (ValueError, ZeroDivisionError):
+        fps = 0.0
+    try:
+        duration = round(float(fmt.get("duration", 0) or 0), 2)
+    except (TypeError, ValueError):
         duration = 0.0
-    width = height = 0
-    fps = 0.0
-    for ln in lines[1:]:
-        if "/" in ln:
-            try:
-                num, _, den = ln.partition("/")
-                fps = float(num) / float(den)
-            except (ValueError, ZeroDivisionError):
-                pass
-        elif width == 0:
-            try:
-                width = int(ln)
-            except ValueError:
-                pass
-        elif height == 0:
-            try:
-                height = int(ln)
-            except ValueError:
-                pass
-    return {"duration_sec": round(duration, 2), "width": width, "height": height, "fps": round(fps, 2)}
+    return {"duration_sec": duration, "width": width, "height": height, "fps": fps}
 
 
 def preprocess_video(
