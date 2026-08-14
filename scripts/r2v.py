@@ -36,10 +36,10 @@ POLL_TIMEOUT = 7200         # 2 小时（ref2va 首次加载权重 + 采样较�
 
 
 def default_action_desc(action_type: str) -> str | None:
-    """按主分类给一个动作描述（动词短语），用于中性场景 R2V prompt 的 motion 描述。
+    """按主分类给一个动作描述（动词短语），用于评级场景 R2V prompt 的 motion 描述。
 
     R2V 动作迁移对 prompt 里的动作描述敏感（实测：写成 ``stands centered`` 会僵立只推镜）。
-    已知主分类给显式动作，未知分类返回 None（用 build_neutral_prompt 的通用默认）。
+    已知主分类给显式动作，未知分类返回 None（用 build_rating_prompt 的通用默认）。
     """
     mapping = {
         "walk": "walks continuously toward and past the camera with a natural gait cycle, legs "
@@ -57,11 +57,12 @@ def default_action_desc(action_type: str) -> str | None:
     return mapping.get(action_type)
 
 
-def build_neutral_prompt(action_desc: str | None = None) -> str:
-    """构造中性场景（简洁室内、中性灰背景）的 R2V ref 格式 prompt。
+def build_rating_prompt(action_desc: str | None = None) -> str:
+    """构造「标准丰富场景」（雨夜城市街道）的 R2V ref 格式 prompt。
 
-    评级标准化：场景固定中性，避免复杂场景（如雨夜便利店）的生成质量干扰动作评分。
-    但动作描述必须是显式的「持续运动」动词短语，否则模型倾向僵立只推镜（实测踩坑）。
+    评级标准化：场景固定为雨夜城市街道——丰富到让模型有上下文「合理化」动作，又固定保证
+    不同动作模板之间可比（此前中性灰太贫瘠，易触发静态肖像模式，动作迁移退化）。
+    动作描述必须是显式的「持续运动」动词短语，否则模型倾向僵立只推镜（实测踩坑）。
     ``<Picture 1>`` 锁角色身份，``<Video 1>`` 锁动作，显式分配职责。
     """
     if not action_desc:
@@ -76,8 +77,11 @@ def build_neutral_prompt(action_desc: str | None = None) -> str:
         "<Video 1> is the motion reference. The character performs the exact same motion shown in "
         f"<Video 1>: {action_desc}, continuously and naturally without stopping. The character "
         "must NOT stand still.\n\n"
-        "integrated_multimodal_description: A simple indoor scene with a neutral grey seamless "
-        "background, soft even studio lighting, no props, no text, no logos. The character "
+        "integrated_multimodal_description: A rainy night city street with rich spatial depth — "
+        "wet asphalt sidewalk receding into the distance in clear one-point perspective, warm "
+        "streetlamps and softly glowing shop windows lining both sides, light rain falling, "
+        "shallow puddles reflecting the amber and neon lights, a faint mist in the air. The "
+        "environment has strong depth cues and atmospheric lighting. The character "
         f"{action_desc}, moving naturally and fluidly throughout the entire shot, with the camera "
         "gently tracking backward to follow the motion, in a style consistent with <Picture 1>.\n\n"
         "overall_soundscape: N/A\n\n"
@@ -229,7 +233,7 @@ def run_r2v(
     流程：拆帧 → 上传角色图 → 构建工作流 → 排队 → 轮询 → 下载 .mp4。
     """
     seed = seed if seed is not None else random.randint(0, int(1e9))
-    prompt = build_neutral_prompt(action_desc)
+    prompt = build_rating_prompt(action_desc)
 
     t0 = time.time()
     frames_folder = out_path.parent / "motion_frames"

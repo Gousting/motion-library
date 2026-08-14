@@ -1,19 +1,19 @@
-"""R2V 工作流 / 中性 prompt / 预处理命令 纯函数单测（守护踩过的坑）。"""
+"""R2V 工作流 / 评级 prompt / 预处理命令 纯函数单测（守护踩过的坑）。"""
 from pathlib import Path
 
 from scripts.preprocess import build_preprocess_cmd
-from scripts.r2v import build_neutral_prompt, build_workflow, default_action_desc
+from scripts.r2v import build_rating_prompt, build_workflow, default_action_desc
 
 
-def test_neutral_prompt_has_picture_and_video():
-    p = build_neutral_prompt()
+def test_rating_prompt_has_picture_and_video():
+    p = build_rating_prompt()
     assert "<Picture 1>" in p
     assert "<Video 1>" in p
 
 
-def test_neutral_prompt_forbids_standing_still():
+def test_rating_prompt_forbids_standing_still():
     # 回归：曾写成 "stands centered" / "centered in frame" 导致动作丢失（score 45/55）
-    p = build_neutral_prompt(default_action_desc("walk"))
+    p = build_rating_prompt(default_action_desc("walk"))
     assert "stands centered" not in p.lower()
     assert "centered in frame" not in p.lower()
     assert "must not stand still" in p.lower()
@@ -21,9 +21,19 @@ def test_neutral_prompt_forbids_standing_still():
     assert "walk" in p.lower()
 
 
-def test_neutral_prompt_embeds_action_desc():
-    p = build_neutral_prompt("walks continuously with a natural gait cycle")
+def test_rating_prompt_embeds_action_desc():
+    p = build_rating_prompt("walks continuously with a natural gait cycle")
     assert "walks continuously" in p
+
+
+def test_rating_prompt_uses_rich_scene_not_neutral_grey():
+    # 回归：防止有人改回中性灰贫瘠场景（贫瘠场景触发静态肖像模式，动作迁移退化）
+    p = build_rating_prompt(default_action_desc("walk"))
+    assert "neutral grey" not in p.lower()
+    assert "seamless background" not in p.lower()
+    assert "rainy night" in p.lower()
+    assert "one-point perspective" in p.lower()
+    assert "sidewalk" in p.lower()
 
 
 def test_default_action_desc_known_type():

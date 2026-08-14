@@ -16,7 +16,7 @@ CLI:
 
 流程：
   1. 调 preprocess：ffmpeg 裁 3-5s / 24fps / 1344x768（保持比例 pad 黑边）/ 去遮挡
-  2. 调 ComfyUI R2V：ref_images=[assets/test_character.png]，ref_videos=[模板转帧]，中性场景 prompt
+  2. 调 ComfyUI R2V：ref_images=[assets/test_character.png]，ref_videos=[模板转帧]，标准丰富场景 prompt
   3. 调 VLM 审查三项（char_locked / motion_natural / spatial_stable）+ 总分
   4. 自动评级：score>=80 A；70-79 B；<70 C（打印「弃用」并退出，不入库不写 meta）
   5. 写 meta.yaml + 登记 index.yaml + 落盘 template.mp4 / source.mp4
@@ -218,7 +218,7 @@ def run(argv=None) -> int:
             return 2
         candidate_work = work_dir / action_id
         r2v_result_path = candidate_work / "r2v_result.mp4"
-        print(f"[r2v] 调 ComfyUI R2V（ref_images=测试角色图，ref_videos=模板转帧，中性场景）...", flush=True)
+        print(f"[r2v] 调 ComfyUI R2V（ref_images=测试角色图，ref_videos=模板转帧，标准丰富场景）...", flush=True)
         run_r2v(
             char_path=test_character,
             motion_video=template_src,
