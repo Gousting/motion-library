@@ -190,3 +190,4 @@ ai-video-pipeline（origin/main）：
 
 ### commit 列表（本期）
 - 266aaa2 第二期：评级场景从中性灰升级为标准丰富场景（雨夜城市街道）+ 测试同步 + 新增回归测试（pytest 39 passed）
+- 39308f9 第二期文档同步：README 已知限制/评级标准化段落 + report 追加二期（改动 + 实测重新标定 42 分）
