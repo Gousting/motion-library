@@ -157,3 +157,36 @@ motion-library（origin/main）：
 
 ai-video-pipeline（origin/main）：
 - ea63792 README: 标注出片动作模板依赖 Gousting/motion-library（动作 ID 索引），风格名 + 动作 ID 一起传
+
+## 十、第二期：评级场景升级为标准丰富场景（2026-08-14）
+
+### 改动（已实现）
+- scripts/r2v.py：build_neutral_prompt → build_rating_prompt，评级场景从「简洁室内中性灰背景」改为
+  「标准丰富场景」（雨夜城市街道）。其余已验证结构原样保留：<Picture 1> 角色身份锁（阿迟完整外观）、
+  <Video 1> 动作锁 + "must NOT stand still"、结尾 camera tracking backward 跟随运动、
+  "in a style consistent with <Picture 1>" 收尾、overall_soundscape / non_diegetic_music 两行 N/A 占位。
+- scripts/vlm_review.py：REVIEW_PROMPT 场景描述同步为「雨夜城市街道」标准丰富场景
+  （三项审查结构 char_locked/motion_natural/spatial_stable 与 JSON 输出不变）。
+- scripts/ingest.py：docstring / 日志措辞同步（中性场景 → 标准丰富场景）。
+- tests/test_r2v.py：import / 函数名 / 断言措辞 neutral_prompt → rating_prompt，新增回归测试
+  test_rating_prompt_uses_rich_scene_not_neutral_grey（守护不改回中性灰贫瘠场景）。pytest 39 passed。
+- README.md：评级标准化段落 + 已知限制段落同步为「标准丰富场景」。
+- 全仓库 grep build_neutral_prompt / neutral_prompt 无残留。
+
+### 实测重新标定（标准丰富场景，单次，同参数同种子）
+- 参数完全对齐第一期 A/B 对照：ref_images=assets/test_character.png，
+  ref_videos=walk/walk_slow_legs_001/template.mp4，seed=20260814，
+  width=1344 height=768 length=124 steps=25。
+- 结果（VLM 三项审查）：score=42；char_locked=true；motion_natural=false（角色四帧同站姿、
+  无肢体摆动/步态起伏，仅细微推镜，动作迁移失败）；spatial_stable=true（雨夜街道背景稳定，
+  店铺招牌灯/路灯/锥桶/湿路面反光无漂移扭曲）。
+
+### 判定
+- 基线对照：中性灰 = 45~55（motion_natural=false），原雨夜便利店 = 88。
+- 新标准丰富场景单次实测 42 < 70 且 motion_natural=false：换成「雨夜城市街道」后，同种子同参数
+  仍触发静态肖像模式，动作迁移失败，得分甚至低于中性灰。结论：光改场景不足以恢复动作迁移。
+- 阈值不调整（不硬改阈值掩盖问题）；种子 walk_slow_legs_001 的 meta.yaml r2v_score 保持 88
+  （来自第一期「雨夜便利店」场景验证），不按本次 42 重标定（42 反映评级场景本身问题，非模板质量问题）。
+
+### commit 列表（本期）
+- 266aaa2 第二期：评级场景从中性灰升级为标准丰富场景（雨夜城市街道）+ 测试同步 + 新增回归测试（pytest 39 passed）
