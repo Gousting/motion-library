@@ -262,4 +262,4 @@ ai-video-pipeline（origin/main）：
 - a806562 第三期任务一：build_rating_prompt 修正（黄金便利店机位）+ VLM 场景同步 + 防推镜回归测试 + 黄金模板入库
 - e046a1e 第三期任务二：PRIMITIVE_TEMPLATES 11 原语 + build_rating_prompt(primitive_id) + run_r2v/ingest 迁移
 - c3820a9 第三期任务三：fetch_stock.py + config.yaml stock 段 + 搜索词映射/报错单测（真 key 实测下载成功）
-- （本条）第三期任务四：测试补全（原语全量黑名单/结构/camera 守护）+ README/report 文档同步
+- 56b3f68 第三期任务四：测试补全（原语全量黑名单/结构/camera 守护）+ README/report 文档同步（pytest 50 passed）
