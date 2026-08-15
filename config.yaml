@@ -53,3 +53,22 @@ preprocess:
 
 output:
   work_dir: "work"               # R2V 验证中间产物（拆帧 / 结果视频 / 审查 JSON），已 gitignore
+
+# 素材源自动获取（Pixabay）。api_key 占位符，真实值放 .env: MOTIONLIB_PIXABAY_API_KEY。
+# search_terms 务必落到「肢体/全身动作」而非「场景风景」，可在此微调覆盖。
+stock:
+  provider: "pixabay"
+  api_key: "YOUR_PIXABAY_API_KEY"   # 占位符，真实值放 .env: MOTIONLIB_PIXABAY_API_KEY
+  per_page: 10                       # Pixabay 单页返回上限（实际取 --limit 个）
+  search_terms:                      # 各原语搜索词（肢体/全身动作，非场景风景）
+    walk_toward: "walking legs feet"
+    walk_away: "walking away back view"
+    run_toward: "running legs"
+    turn: "turning around body"
+    sit: "sitting down bench"
+    stand: "standing up chair"
+    reach_grab: "reaching grabbing object hand"
+    open_door: "opening door"
+    wave: "waving hand greeting"
+    nod: "nodding head"
+    head_turn: "turning head look"

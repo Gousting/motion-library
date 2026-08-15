@@ -16,6 +16,7 @@ ENV_PATH = PROJECT_ROOT / ".env"
 
 # .env / 进程环境变量里的密钥键名
 VLM_API_KEY_ENV = "MOTIONLIB_VLM_API_KEY"
+STOCK_API_KEY_ENV = "MOTIONLIB_PIXABAY_API_KEY"
 
 
 def _load_env_file(path: Path) -> dict[str, str]:
@@ -45,9 +46,20 @@ def load_config() -> dict:
     key = os.environ.get(VLM_API_KEY_ENV) or env_file.get(VLM_API_KEY_ENV) or ""
     if key:
         cfg.setdefault("vlm", {})["api_key"] = key
+    skey = os.environ.get(STOCK_API_KEY_ENV) or env_file.get(STOCK_API_KEY_ENV) or ""
+    if skey:
+        cfg.setdefault("stock", {})["api_key"] = skey
     return cfg
 
 
 def get_vlm_api_key(cfg: dict) -> str:
     """取 VLM 审查密钥（已由 load_config 解析）。"""
     return (cfg.get("vlm") or {}).get("api_key", "")
+
+
+def get_stock_api_key(cfg: dict) -> str:
+    """取素材源（Pixabay）密钥（已由 load_config 解析）；占位符视为未配置返回空。"""
+    key = (cfg.get("stock") or {}).get("api_key", "")
+    if not key or key.startswith("YOUR_"):
+        return ""
+    return key
