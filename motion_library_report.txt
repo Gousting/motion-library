@@ -335,3 +335,4 @@ python scripts/ingest.py --video work/raw/walk_toward/<候选>.mp4 \
 ### commit 列表（本期）
 - 19edf0d 第四期任务一：walk_toward 候选筛选（ffprobe 实测 + 最接近 4s 回退规则）+ 四期任务书入库
 - （任务二无 tracked 改动：三候选均弃用，不写 meta 不登记 index，结果记录于本节报告）
+- 734df8d 第四期任务二+三：3 候选全链路试跑（45/45/40 全弃用 0 入库，VLM 3 次）+ report 追加第四期
