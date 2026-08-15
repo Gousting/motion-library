@@ -13,22 +13,17 @@ def test_rating_prompt_has_picture_and_video():
 
 def test_rating_prompt_forbids_standing_still():
     # 回归：曾写成 "stands centered" / "centered in frame" 导致动作丢失（score 45/55）
-    p = build_rating_prompt(default_action_desc("walk"))
-    assert "stands centered" not in p.lower()
-    assert "centered in frame" not in p.lower()
-    assert "must not stand still" in p.lower()
-    assert "tracking backward" in p.lower()  # 相机跟随运动，避免静态构图
-    assert "walk" in p.lower()
-
-
-def test_rating_prompt_embeds_action_desc():
-    p = build_rating_prompt("walks continuously with a natural gait cycle")
-    assert "walks continuously" in p
+    p = build_rating_prompt("walk_toward").lower()
+    assert "stands centered" not in p
+    assert "centered in frame" not in p
+    assert "must not stand still" in p
+    assert "tracking backward" in p  # 相机跟随运动，避免静态构图
+    assert "walk" in p
 
 
 def test_rating_prompt_uses_verified_scene_and_camera():
     # 回归1：防止改回中性灰贫瘠场景（贫瘠场景触发静态肖像模式，动作迁移退化）
-    p = build_rating_prompt(default_action_desc("walk"))
+    p = build_rating_prompt("walk_toward")
     low = p.lower()
     assert "neutral grey" not in low
     assert "seamless background" not in low
@@ -40,6 +35,29 @@ def test_rating_prompt_uses_verified_scene_and_camera():
     assert "tracking backward" in low
     for bad in ("one-point perspective", "receding", "vanishing point"):
         assert bad not in low
+
+
+def test_build_rating_prompt_unknown_primitive_raises():
+    import pytest
+    with pytest.raises(ValueError):
+        build_rating_prompt("nonexistent_primitive")
+
+
+def test_walk_toward_matches_golden_template():
+    # walk_toward 必须与黄金模板（assets/r2v_prompt_v2.txt，85 分）逐字等价
+    golden = Path(__file__).resolve().parent.parent / "assets" / "r2v_prompt_v2.txt"
+    g = golden.read_text(encoding="utf-8")
+    p = build_rating_prompt("walk_toward")
+    # <Picture 1> 身份段、integrated、soundscape 三段逐字一致
+    for seg in (
+        "<Picture 1> is the character identity reference. The character in this shot is Achi",
+        "Achi walks continuously toward and past the camera with the same natural walking gait "
+        "cycle shown in <Video 1>, his legs stepping in a steady rhythm, the camera slowly "
+        "tracking backward to follow him",
+        "overall_soundscape: gentle steady rain falling, distant soft city ambience",
+    ):
+        assert seg in g, f"黄金模板未含该段: {seg[:50]}"
+        assert seg in p, f"组装 prompt 未含该段: {seg[:50]}"
 
 
 def test_default_action_desc_known_type():

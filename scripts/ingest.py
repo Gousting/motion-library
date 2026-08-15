@@ -16,7 +16,8 @@ CLI:
 
 流程：
   1. 调 preprocess：ffmpeg 裁 3-5s / 24fps / 1344x768（保持比例 pad 黑边）/ 去遮挡
-  2. 调 ComfyUI R2V：ref_images=[assets/test_character.png]，ref_videos=[模板转帧]，标准丰富场景 prompt
+  2. 调 ComfyUI R2V：ref_images=[assets/test_character.png]，ref_videos=[模板转帧]，
+     原语模板组装的黄金评级 prompt（walk_toward 等 11 原语，机位措辞决定动作成败）
   3. 调 VLM 审查三项（char_locked / motion_natural / spatial_stable）+ 总分
   4. 自动评级：score>=80 A；70-79 B；<70 C（打印「弃用」并退出，不入库不写 meta）
   5. 写 meta.yaml + 登记 index.yaml + 落盘 template.mp4 / source.mp4
@@ -40,7 +41,7 @@ import yaml  # noqa: E402
 from scripts import rating, schemas  # noqa: E402
 from scripts.config import get_vlm_api_key, load_config  # noqa: E402
 from scripts.preprocess import preprocess_video, probe_video  # noqa: E402
-from scripts.r2v import default_action_desc, run_r2v  # noqa: E402
+from scripts.r2v import ACTION_TYPE_TO_PRIMITIVE, PRIMITIVE_TEMPLATES, run_r2v  # noqa: E402
 from scripts.vlm_review import review_motion  # noqa: E402
 
 
@@ -153,7 +154,10 @@ def run(argv=None) -> int:
     ap.add_argument("--start", type=float, default=None, help="裁剪起点（秒），缺省居中/0")
     ap.add_argument("--crop", default=None, help="去遮挡裁剪 W:H:X:Y")
     ap.add_argument("--seed", type=int, default=None, help="R2V 随机种子")
-    ap.add_argument("--action-desc", default=None, help="动作描述（R2V prompt 用，缺省用通用持续运动描述）")
+    ap.add_argument("--primitive", default=None,
+                    help="原语模板 id（评级 prompt 用它组装），缺省按 action-type 映射")
+    ap.add_argument("--action-desc", default=None,
+                    help="[已弃用] 旧版自由动作描述；现由原语模板统一组装 prompt，此参数忽略")
     ap.add_argument("--source-file", default=None, help="原始素材（落盘为 source.mp4，reuse 模式可选）")
     ap.add_argument("--verified-score", type=int, default=None, help="复用已跑 R2V 的评分（reuse 模式）")
     ap.add_argument("--verified-checks", default=None,
@@ -218,13 +222,21 @@ def run(argv=None) -> int:
             return 2
         candidate_work = work_dir / action_id
         r2v_result_path = candidate_work / "r2v_result.mp4"
-        print(f"[r2v] 调 ComfyUI R2V（ref_images=测试角色图，ref_videos=模板转帧，标准丰富场景）...", flush=True)
+        if args.action_desc:
+            print("[提示] --action-desc 已弃用（现由原语模板组装 prompt），忽略该参数。", file=sys.stderr)
+        primitive_id = args.primitive or ACTION_TYPE_TO_PRIMITIVE.get(args.action_type, "walk_toward")
+        if primitive_id not in PRIMITIVE_TEMPLATES:
+            print(f"[错误] 未知原语 {primitive_id!r}，可选: {', '.join(sorted(PRIMITIVE_TEMPLATES))}",
+                  file=sys.stderr)
+            return 2
+        print(f"[r2v] 调 ComfyUI R2V（ref_images=测试角色图，ref_videos=模板转帧，原语={primitive_id}，"
+              f"黄金评级场景）...", flush=True)
         run_r2v(
             char_path=test_character,
             motion_video=template_src,
             out_path=r2v_result_path,
             comfy_url=comfy_url,
-            action_desc=args.action_desc or default_action_desc(args.action_type),
+            primitive_id=primitive_id,
             seed=args.seed,
             steps=int(r2v_cfg.get("steps", 25)),
             length=int(r2v_cfg.get("length", 124)),

@@ -36,10 +36,11 @@ POLL_TIMEOUT = 7200         # 2 小时（ref2va 首次加载权重 + 采样较�
 
 
 def default_action_desc(action_type: str) -> str | None:
-    """按主分类给一个动作描述（动词短语），用于评级场景 R2V prompt 的 motion 描述。
+    """[已弃用，向后兼容保留] 按主分类给动作描述。请改用 ``build_rating_prompt(primitive_id)``
+    ——动作措辞由 PRIMITIVE_TEMPLATES 统一提供（机位措辞是动作成败关键，见模板表注释）。
 
     R2V 动作迁移对 prompt 里的动作描述敏感（实测：写成 ``stands centered`` 会僵立只推镜）。
-    已知主分类给显式动作，未知分类返回 None（用 build_rating_prompt 的通用默认）。
+    已知主分类给显式动作，未知分类返回 None。
     """
     mapping = {
         "walk": "walks continuously toward and past the camera with a natural gait cycle, legs "
@@ -57,42 +58,181 @@ def default_action_desc(action_type: str) -> str | None:
     return mapping.get(action_type)
 
 
-def build_rating_prompt(action_desc: str | None = None) -> str:
-    """构造「标准评级场景」（雨夜便利店门口）的 R2V ref 格式 prompt。
+# ── 评级标准场景：雨夜便利店黄金模板（assets/r2v_prompt_v2.txt，实测 85 分可复现）──
+# 结构 = <Picture 1> 身份段 + <Video 1> 动作段 + integrated（场景+机位+新海诚尾）+ 两段声景。
+# 关键踩坑（两轮实验验证）：决定动作成败的是机位措辞——「走向并越过镜头 + 镜头后拉跟拍」；
+# 禁止 one-point perspective / receding / vanishing point 等诱导推镜措辞（曾把走路压没，42 分）。
+PICTURE1_SEGMENT = (
+    "<Picture 1> is the character identity reference. The character in this shot is Achi, "
+    "a lean young man in his late twenties with East Asian features, slightly messy black "
+    "short hair with a few raindrops, thin-rimmed glasses, wearing a half-wet dark grey wool "
+    "overcoat over a dark shirt, and a dark canvas messenger bag across his chest. His "
+    "identity, face, hairstyle, glasses, and outfit must stay exactly consistent with "
+    "<Picture 1>. He must NOT become the person appearing in <Video 1>."
+)
+SCENE_SETTING = "A rainy night in front of a glowing convenience store, Makoto Shinkai anime film style."
+STYLE_TAIL = (
+    "Text-free glowing neon sign boards, puddles on the wet ground reflecting the warm neon "
+    "lights, a layered gradient night sky, gentle raindrops falling. Beautiful detailed lighting, "
+    "neon reflections on wet ground, layered gradient sky, bokeh, cinematic composition, Makoto "
+    "Shinkai anime film style."
+)
+SOUNDSCAPE = (
+    "overall_soundscape: gentle steady rain falling, distant soft city ambience, soft footsteps "
+    "splashing lightly on the wet pavement, occasional faint distant traffic rumble."
+)
+NON_DIEGETIC = "non_diegetic_music: N/A"
 
-    评级标准化：场景固定为雨夜便利店门口——这是实测验证过的黄金场景（85 分可复现、
-    跨场景复用成立），丰富到让模型有上下文「合理化」动作，又固定保证不同动作模板之间可比
-    （此前中性灰太贫瘠，易触发静态肖像模式，动作迁移退化）。
+# 原语模板表。walk_toward 的 motion/camera 一字照抄黄金模板（已验证 85 分），其余沿用同句式仿写。
+# 字段：motion_name（动作名，<Video 1> 引用）/ motion（肢体动作）/ action（主句）/ manner（伴随状语）
+#       / camera（机位措辞）/ scene_prop（场景道具，无则空）
+PRIMITIVE_TEMPLATES: dict[str, dict[str, str]] = {
+    "walk_toward": {
+        "motion_name": "natural walking gait cycle",
+        "motion": "legs stepping forward in a steady rhythmic stride, feet lifting and planting, "
+                  "body weight shifting from one foot to the other, walking continuously without stopping",
+        "action": "walks continuously toward and past the camera",
+        "manner": "his legs stepping in a steady rhythm",
+        "camera": "the camera slowly tracking backward to follow him",
+        "scene_prop": "",
+    },
+    "walk_away": {
+        "motion_name": "natural walking gait cycle",
+        "motion": "turned with his back to the lens, legs stepping away in a steady rhythmic stride, "
+                  "feet lifting and planting, body weight shifting from one foot to the other, "
+                  "walking continuously without stopping",
+        "action": "walks away from the camera with his back to the lens",
+        "manner": "his legs stepping in a steady rhythm",
+        "camera": "the camera staying nearly still, drifting only very slowly to keep him in frame",
+        "scene_prop": "",
+    },
+    "run_toward": {
+        "motion_name": "running stride",
+        "motion": "legs driving forward in a full running stride, arms swinging, feet pushing off and "
+                  "landing in quick rhythm, running continuously without stopping",
+        "action": "runs continuously toward and past the camera",
+        "manner": "his legs driving in a quick steady stride",
+        "camera": "the camera slowly tracking backward to follow him",
+        "scene_prop": "",
+    },
+    "turn": {
+        "motion_name": "turning motion",
+        "motion": "pivoting smoothly on his feet and turning his whole body around 180 degrees in one "
+                  "continuous fluid motion, weight shifting with the turn",
+        "action": "turns around 180 degrees in place",
+        "manner": "his body pivoting in one smooth continuous motion",
+        "camera": "the camera holding a steady medium shot",
+        "scene_prop": "",
+    },
+    "sit": {
+        "motion_name": "sitting-down motion",
+        "motion": "bending his knees and lowering himself smoothly onto the bench until seated, moving "
+                  "in one controlled continuous motion",
+        "action": "sits down naturally onto the bench",
+        "manner": "bending his knees and lowering himself smoothly",
+        "camera": "the camera holding a steady still shot",
+        "scene_prop": "a wooden bench rests under the awning",
+    },
+    "stand": {
+        "motion_name": "standing-up motion",
+        "motion": "pressing through his legs and rising smoothly from the bench to a full upright stance "
+                  "in one controlled continuous motion",
+        "action": "stands up naturally from the bench",
+        "manner": "pressing through his legs and rising smoothly",
+        "camera": "the camera holding a steady still shot",
+        "scene_prop": "a wooden bench rests under the awning",
+    },
+    "reach_grab": {
+        "motion_name": "reaching and grabbing motion",
+        "motion": "extending his arm toward the object on the table, fingers opening then closing around "
+                  "it and lifting it, the whole motion flowing continuously",
+        "action": "reaches out and grabs the object on the table",
+        "manner": "his arm extending and his fingers closing around the object",
+        "camera": "the camera holding still with a slight gentle push-in",
+        "scene_prop": "a small table with an object resting on it stands nearby",
+    },
+    "open_door": {
+        "motion_name": "door-opening motion",
+        "motion": "gripping the handle, pulling the door open, and stepping through the doorway in one "
+                  "continuous flowing motion",
+        "action": "opens the door and steps through the doorway",
+        "manner": "gripping the handle and pulling the door open",
+        "camera": "the camera holding a steady still shot",
+        "scene_prop": "the convenience store glass door stands to one side",
+    },
+    "wave": {
+        "motion_name": "waving gesture",
+        "motion": "raising one hand and waving it steadily side to side, the arm and hand moving "
+                  "continuously in a friendly rhythm",
+        "action": "raises his hand and waves",
+        "manner": "his hand waving steadily side to side",
+        "camera": "the camera holding a steady close-up shot",
+        "scene_prop": "",
+    },
+    "nod": {
+        "motion_name": "nodding gesture",
+        "motion": "tilting his head forward and back in a clear, gentle nodding rhythm, the motion "
+                  "continuous and natural",
+        "action": "nods his head gently",
+        "manner": "his head tilting in a gentle rhythmic nod",
+        "camera": "the camera holding a steady close-up shot",
+        "scene_prop": "",
+    },
+    "head_turn": {
+        "motion_name": "head-turning gesture",
+        "motion": "turning his head smoothly to one side and holding the gaze there, the neck and "
+                  "shoulders moving naturally",
+        "action": "turns his head to look to one side",
+        "manner": "his head turning smoothly to one side",
+        "camera": "the camera holding a steady close-up shot",
+        "scene_prop": "",
+    },
+}
 
-    关键踩坑（两轮实验验证）：决定动作成败的是机位措辞——必须是
-    「walks toward and past the camera + camera slowly tracking backward」；
-    **禁止** one-point perspective / receding into the distance / vanishing point 之类
-    诱导推镜的词（曾把走路压没，实测 42 分）。动作描述必须是显式的「持续运动」动词短语。
-    ``<Picture 1>`` 锁角色身份，``<Video 1>`` 锁动作，显式分配职责。
+# ingest 只有主分类 action_type 时，按此映射取默认原语（--primitive 显式指定优先）
+ACTION_TYPE_TO_PRIMITIVE = {
+    "walk": "walk_toward",
+    "run": "run_toward",
+    "turn": "turn",
+    "sit": "sit",
+    "hand": "wave",
+    "flip": "reach_grab",
+    "jump": "run_toward",
+    "gesture": "wave",
+    "dance": "turn",
+}
+
+
+def build_rating_prompt(primitive_id: str = "walk_toward") -> str:
+    """按原语模板组装评级 prompt（结构完全对齐黄金模板 assets/r2v_prompt_v2.txt）。
+
+    评级标准化：场景固定为雨夜便利店门口（实测验证过的黄金场景，丰富到让模型「合理化」动作，
+    又固定保证不同原语之间可比）。``<Picture 1>`` 锁角色身份，``<Video 1>`` 锁动作。
+    动作成败关键在机位措辞（见 PRIMITIVE_TEMPLATES），禁止诱导推镜措辞。
     """
-    if not action_desc:
-        action_desc = "performs the motion from <Video 1> continuously and fluidly"
+    t = PRIMITIVE_TEMPLATES.get(primitive_id)
+    if t is None:
+        raise ValueError(
+            f"未知原语 {primitive_id!r}，可选: {', '.join(sorted(PRIMITIVE_TEMPLATES))}")
+    video1 = (
+        "<Video 1> is the motion reference. The character performs the exact same "
+        f"{t['motion_name']} shown in <Video 1>: {t['motion']}. "
+        "The character must NOT stand still."
+    )
+    scene = SCENE_SETTING
+    if t["scene_prop"]:
+        scene = (
+            "A rainy night in front of a glowing convenience store, where "
+            f"{t['scene_prop']}, Makoto Shinkai anime film style."
+        )
+    integrated = (
+        f"integrated_multimodal_description: {scene} "
+        f"Achi {t['action']} with the same {t['motion_name']} shown in <Video 1>, "
+        f"{t['manner']}, {t['camera']}. {STYLE_TAIL}"
+    )
     return (
-        "<Picture 1> is the character identity reference. The character in this shot is Achi, "
-        "a lean young man in his late twenties with East Asian features, slightly messy black "
-        "short hair with a few raindrops, thin-rimmed glasses, wearing a half-wet dark grey wool "
-        "overcoat over a dark shirt, and a dark canvas messenger bag across his chest. His "
-        "identity, face, hairstyle, glasses, and outfit must stay exactly consistent with "
-        "<Picture 1>. He must NOT become the person appearing in <Video 1>.\n\n"
-        "<Video 1> is the motion reference. The character performs the exact same motion shown in "
-        f"<Video 1>: {action_desc}, continuously and naturally without stopping. The character "
-        "must NOT stand still.\n\n"
-        "integrated_multimodal_description: A rainy night in front of a glowing convenience store, "
-        "Makoto Shinkai anime film style. Achi walks continuously toward and past the camera with "
-        "the same natural walking gait cycle shown in <Video 1>, his legs stepping in a steady "
-        "rhythm, the camera slowly tracking backward to follow him. Text-free glowing neon sign "
-        "boards, puddles on the wet ground reflecting the warm neon lights, a layered gradient "
-        "night sky, gentle raindrops falling. Beautiful detailed lighting, neon reflections on wet "
-        "ground, layered gradient sky, bokeh, cinematic composition, Makoto Shinkai anime film "
-        "style.\n\n"
-        "overall_soundscape: gentle steady rain falling, distant soft city ambience, soft footsteps "
-        "splashing lightly on the wet pavement, occasional faint distant traffic rumble.\n\n"
-        "non_diegetic_music: N/A"
+        f"{PICTURE1_SEGMENT}\n\n{video1}\n\n{integrated}\n\n"
+        f"{SOUNDSCAPE}\n\n{NON_DIEGETIC}"
     )
 
 
@@ -227,7 +367,7 @@ def run_r2v(
     motion_video: Path,
     out_path: Path,
     comfy_url: str,
-    action_desc: str | None = None,
+    primitive_id: str = "walk_toward",
     seed: int | None = None,
     steps: int = DEFAULT_STEPS,
     length: int = DEFAULT_LENGTH,
@@ -237,10 +377,11 @@ def run_r2v(
 ) -> dict:
     """跑一次完整 R2V 生成，返回结果摘要 dict（含 seed / prompt_id / 输出文件等）。
 
+    评级 prompt 由原语模板组装（``build_rating_prompt(primitive_id)``）。
     流程：拆帧 → 上传角色图 → 构建工作流 → 排队 → 轮询 → 下载 .mp4。
     """
     seed = seed if seed is not None else random.randint(0, int(1e9))
-    prompt = build_rating_prompt(action_desc)
+    prompt = build_rating_prompt(primitive_id)
 
     t0 = time.time()
     frames_folder = out_path.parent / "motion_frames"
