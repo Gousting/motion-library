@@ -263,3 +263,75 @@ ai-video-pipeline（origin/main）：
 - e046a1e 第三期任务二：PRIMITIVE_TEMPLATES 11 原语 + build_rating_prompt(primitive_id) + run_r2v/ingest 迁移
 - c3820a9 第三期任务三：fetch_stock.py + config.yaml stock 段 + 搜索词映射/报错单测（真 key 实测下载成功）
 - 56b3f68 第三期任务四：测试补全（原语全量黑名单/结构/camera 守护）+ README/report 文档同步（pytest 50 passed）
+
+## 十二、第四期：walk_toward 候选验证入库小规模试跑（2026-08-15）
+
+### 一、候选筛选（任务一）
+work/raw/walk_toward/ 5 个候选 ffprobe 实测（均 1280x720，25/30fps）：
+
+| 候选 | 时长 | 分辨率 | 判定 |
+| --- | --- | --- | --- |
+| pixabay_3171_medium.mp4 | 9.97s | 1280x720 | 选中（最接近理想 3-8s / 最接近 4s） |
+| pixabay_2302_medium.mp4 | 11.93s | 1280x720 | 选中（次接近） |
+| pixabay_4722_medium.mp4 | 12.12s | 1280x720 | 选中（第三） |
+| pixabay_3627_medium.mp4 | 16.20s | 1280x720 | 弃（太长，预处理裁不准） |
+| pixabay_7713_medium.mp4 | 19.88s | 1280x720 | 弃（太长，预处理裁不准） |
+
+说明：无候选落在理想 3-8s 区间（均 9.97s+），按任务书「拿不准优先最接近 4 秒」规则选前三个。
+画面主体无法程序化确认（执行模型不支持图像输入），fetch_stock.py 未持久化候选元信息，
+source_url 按 https://pixabay.com/videos/<id> 构造。
+
+### 二、逐个 ingest 结果（任务二）
+统一命令（action_type=walk → walk_toward 原语黄金评级 prompt）：
+```
+python scripts/ingest.py --video work/raw/walk_toward/<候选>.mp4 \
+    --action-type walk --camera closeup --body-part legs \
+    --source-type stock --source-url https://pixabay.com/videos/<id> --license pexels-free
+```
+
+| 候选 | R2V | VLM score | char_locked | motion_natural | spatial_stable | 评级 | 结果 |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| pixabay_3171 | 成功 | 45 | true | false | true | C | 弃用（不入库不写 meta） |
+| pixabay_2302 | 成功 | 45 | true | false | true | C | 弃用（不入库不写 meta） |
+| pixabay_4722 | 成功 | 40 | true | false | true | C | 弃用（不入库不写 meta） |
+
+- **walk_toward 本期入库 0 个**（三候选全部 <70 走弃用路径，弃用路径本身正确：未写 meta、未登记 index）。
+- VLM 实际调用次数：**3 次**（每候选恰好 1 次，符合红线 ≤3）。
+- R2V 总耗时：1359.5 + 1363 + 1393.1 = **4115.6s ≈ 68.6 分钟**（单次 R2V 约 22-23 分钟，
+  含 ref2va 权重热缓存下的采样；每次全链路另含预处理 + VLM 审查）。
+- 三次 VLM 审查失败模式完全一致：角色锁定与空间稳定均达标，但角色「双手插兜直立站定、
+  无步态复刻、仅推镜/横移」——即第一期已记录的静态肖像模式。审查明细落盘
+  work/walk_default_legs_001/r2v_review.json（注意：弃用候选共用同一自动生成 id
+  walk_default_legs_001，work 目录被后跑的覆盖，仅存 4722 的审查 JSON；3171/2302 的结论
+  以上表为准。建议后续试跑对每候选传显式 --id 或 --sub-action 区分溯源目录）。
+
+### 三、根因分析（与第一期硬结论对齐）
+第一期实测硬结论：动作迁移质量取决于参考视频的动作清晰度——全景背影走路 62 分（动作丢失）、
+腿部步态特写（黑底）88 分（自然复刻）。种子 walk_slow_legs_001 的 88 分正来自「肢体特写、
+主体占满画面、背景干净」的黑底腿部素材。本期 Pixabay 候选（搜索词 "walking legs feet"）
+是 1280x720 全画面常规街景走路镜头，动作信号弱 + 主体小 + 背景杂，且 10-12s 长素材居中裁
+4s 不能保证窗口内是完整连续步态——三条都踩中第一期「动作丢失」画像，45/45/40 与该规律一致。
+结论：**不是评级 prompt/链路退化**（第三期黄金模板同参数可复现 85 分），而是候选素材本身
+动作信号不足。阈值（≥80 A / 70-79 B / <70 弃用）与元数据规范未动。
+
+### 四、铺开其余 10 个原语的建议
+**不建议现阶段铺开**，先解决候选素材质量问题：
+1. 素材标准前置：优先「肢体特写 / 主体占画面主体 / 背景干净 / 时长 3-8s 全程是动作」的素材，
+   对齐第一期 88 分素材画像；全画面远景走路/场景向素材直接不选。
+2. 给 fetch_stock.py 加候选元信息持久化（listing 落 json：id/page_url/时长/分辨率/变体），
+   避免 source_url 事后靠文件名反推。
+3. 加廉价的动作信号预筛（如 ffmpeg 光流/帧差代理）在 R2V 之前过滤静态/慢移素材——
+   本轮 3 个候选烧掉 68.6 分钟 GPU 才确认均不合格，预筛可大幅省 GPU。
+4. 试跑时每候选显式 --id/--sub-action，保证 work 溯源目录不互相覆盖。
+5. 素材达标后（任一轮 walk_toward 出 ≥70 的 B/A）再按原语模板表逐个铺开其余 10 原语，
+   流程本身本期已全链路验证可用。
+
+### 五、验收对照
+1. 至少 1 个候选完成入库：**未达成**（0 入库，三候选均 <70 弃用；链路本身跑通、弃用路径正确）。
+2. VLM 调用 ≤ 3 次：达成（实际 3 次）。
+3. pytest 全绿（50 测试）：达成（见下）。
+4. report 追加第四期：本节。
+
+### commit 列表（本期）
+- 19edf0d 第四期任务一：walk_toward 候选筛选（ffprobe 实测 + 最接近 4s 回退规则）+ 四期任务书入库
+- （任务二无 tracked 改动：三候选均弃用，不写 meta 不登记 index，结果记录于本节报告）
