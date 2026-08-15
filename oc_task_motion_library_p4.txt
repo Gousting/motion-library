@@ -1,0 +1,51 @@
+# opencode 任务书：动作库第四期 —— walk_toward 候选验证入库（小规模试跑）
+
+# 执行环境：宿主机 Windows，项目 D:\motion-library\，仓库 Gousting/motion-library
+# 背景：第三期已落地 fetch_stock.py（Pixabay 抓取）+ 11 原语模板表 + 修正评级 prompt。
+#   work/raw/walk_toward/ 下已有 5 个候选 mp4（pixabay_2302/3171/3627/4722/7713）。
+# 本期目标：从 walk_toward 候选里挑 2-3 个跑通完整入库链路（预处理→R2V→VLM→评级→写 meta+index），
+#   验证质量后出报告，再决定是否铺开其余 10 个原语。
+
+## 硬性红线
+1. 每完成一个子任务立即 git add -A && git commit && git push
+2. **VLM 审查省着用（最高优先级）**：review_motion 每候选最多调 1 次，本期总共不超过 3 次调用，
+   严禁对同一候选重复调用 VLM 打分
+3. R2V 生成失败（ComfyUI 报错/超时）的候选直接跳过，不调 VLM
+4. 评级脚本只调 ComfyUI HTTP API，不读写权重文件
+5. 不要擅自改入库阈值（≥80 A / 70-79 B / <70 弃用）和元数据规范
+
+## 前置（已就绪，仅确认）
+1. ComfyUI 在 127.0.0.1:8188（MiniMax H3 ref2va 权重）
+2. .env 已配 MOTIONLIB_VLM_API_KEY 和 MOTIONLIB_PIXABAY_API_KEY（真实值，勿打印勿提交）
+3. 候选素材在 work/raw/walk_toward/ 下
+
+## 任务一：筛选候选（省 VLM 的关键）
+用 ffprobe 查 work/raw/walk_toward/ 下 5 个候选的时长/分辨率，挑 2-3 个最合适的：
+- 时长 3-8 秒（太短动作不完整，太长预处理裁不准）
+- 分辨率 ≥ 720p
+- 画面主体应为「人走路」，拿不准时优先挑时长最接近 4 秒的
+
+## 任务二：逐个跑 ingest.py 验证入库
+对挑出的每个候选，跑：
+    python scripts/ingest.py --video work/raw/walk_toward/<候选>.mp4 \
+        --action-type walk --camera closeup --body-part legs \
+        --source-type stock --source-url <pixabay 视频页 URL> --license pexels-free
+
+说明：
+- action_type=walk 会映射到 walk_toward 原语模板（修正过的黄金评级 prompt）
+- source_url 从 Pixabay 视频 ID 构造（先看 scripts/fetch_stock.py 下载时怎么记录 url，没有就用
+  https://pixabay.com/videos/<id> 形式）
+- R2V 每个候选约 5 分钟（ComfyUI GPU），耐心等待，不要中断
+- VLM 审查只对 R2V 成功产出的候选调，每候选恰好 1 次
+
+## 任务三：评级入库结果 + 报告
+1. 汇总每个候选的评级结果（id + grade + score + char_locked/motion_natural/spatial_stable）
+2. motion_library_report.txt 追加「第四期」一节
+3. 报告要点：walk_toward 入库了几个、分别什么评级、VLM 实际调用次数、R2V 总耗时、
+   铺开其余 10 个原语的建议
+
+## 验收
+1. 至少 1 个候选完成入库（写 meta.yaml + 登记 index.yaml），git push
+2. VLM 调用 ≤ 3 次（报告里明确写出实际次数）
+3. pytest 全绿（不破坏现有 50 测试）
+4. report 追加第四期，git push

@@ -22,4 +22,5 @@ venv/
 # ---- 本地运行脚手架（opencode 宿主脚本，非项目代码）----
 start_motion_library.bat
 run_motion_p3.bat
+run_motion_p4.bat
 motion_library_run.log
