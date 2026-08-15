@@ -26,14 +26,20 @@ def test_rating_prompt_embeds_action_desc():
     assert "walks continuously" in p
 
 
-def test_rating_prompt_uses_rich_scene_not_neutral_grey():
-    # 回归：防止有人改回中性灰贫瘠场景（贫瘠场景触发静态肖像模式，动作迁移退化）
+def test_rating_prompt_uses_verified_scene_and_camera():
+    # 回归1：防止改回中性灰贫瘠场景（贫瘠场景触发静态肖像模式，动作迁移退化）
     p = build_rating_prompt(default_action_desc("walk"))
-    assert "neutral grey" not in p.lower()
-    assert "seamless background" not in p.lower()
-    assert "rainy night" in p.lower()
-    assert "one-point perspective" in p.lower()
-    assert "sidewalk" in p.lower()
+    low = p.lower()
+    assert "neutral grey" not in low
+    assert "seamless background" not in low
+    assert "rainy night" in low
+    assert "convenience store" in low  # 验证过的黄金场景（雨夜便利店，85 分可复现）
+    # 回归2：机位措辞必须「走向并越过镜头 + 镜头后拉跟拍」，禁止诱导推镜的词
+    # （one-point perspective / receding / vanishing point 曾把走路压没，实测 42 分）
+    assert "toward and past the camera" in low
+    assert "tracking backward" in low
+    for bad in ("one-point perspective", "receding", "vanishing point"):
+        assert bad not in low
 
 
 def test_default_action_desc_known_type():

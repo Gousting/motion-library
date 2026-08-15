@@ -58,11 +58,16 @@ def default_action_desc(action_type: str) -> str | None:
 
 
 def build_rating_prompt(action_desc: str | None = None) -> str:
-    """构造「标准丰富场景」（雨夜城市街道）的 R2V ref 格式 prompt。
+    """构造「标准评级场景」（雨夜便利店门口）的 R2V ref 格式 prompt。
 
-    评级标准化：场景固定为雨夜城市街道——丰富到让模型有上下文「合理化」动作，又固定保证
-    不同动作模板之间可比（此前中性灰太贫瘠，易触发静态肖像模式，动作迁移退化）。
-    动作描述必须是显式的「持续运动」动词短语，否则模型倾向僵立只推镜（实测踩坑）。
+    评级标准化：场景固定为雨夜便利店门口——这是实测验证过的黄金场景（85 分可复现、
+    跨场景复用成立），丰富到让模型有上下文「合理化」动作，又固定保证不同动作模板之间可比
+    （此前中性灰太贫瘠，易触发静态肖像模式，动作迁移退化）。
+
+    关键踩坑（两轮实验验证）：决定动作成败的是机位措辞——必须是
+    「walks toward and past the camera + camera slowly tracking backward」；
+    **禁止** one-point perspective / receding into the distance / vanishing point 之类
+    诱导推镜的词（曾把走路压没，实测 42 分）。动作描述必须是显式的「持续运动」动词短语。
     ``<Picture 1>`` 锁角色身份，``<Video 1>`` 锁动作，显式分配职责。
     """
     if not action_desc:
@@ -77,14 +82,16 @@ def build_rating_prompt(action_desc: str | None = None) -> str:
         "<Video 1> is the motion reference. The character performs the exact same motion shown in "
         f"<Video 1>: {action_desc}, continuously and naturally without stopping. The character "
         "must NOT stand still.\n\n"
-        "integrated_multimodal_description: A rainy night city street with rich spatial depth — "
-        "wet asphalt sidewalk receding into the distance in clear one-point perspective, warm "
-        "streetlamps and softly glowing shop windows lining both sides, light rain falling, "
-        "shallow puddles reflecting the amber and neon lights, a faint mist in the air. The "
-        "environment has strong depth cues and atmospheric lighting. The character "
-        f"{action_desc}, moving naturally and fluidly throughout the entire shot, with the camera "
-        "gently tracking backward to follow the motion, in a style consistent with <Picture 1>.\n\n"
-        "overall_soundscape: N/A\n\n"
+        "integrated_multimodal_description: A rainy night in front of a glowing convenience store, "
+        "Makoto Shinkai anime film style. Achi walks continuously toward and past the camera with "
+        "the same natural walking gait cycle shown in <Video 1>, his legs stepping in a steady "
+        "rhythm, the camera slowly tracking backward to follow him. Text-free glowing neon sign "
+        "boards, puddles on the wet ground reflecting the warm neon lights, a layered gradient "
+        "night sky, gentle raindrops falling. Beautiful detailed lighting, neon reflections on wet "
+        "ground, layered gradient sky, bokeh, cinematic composition, Makoto Shinkai anime film "
+        "style.\n\n"
+        "overall_soundscape: gentle steady rain falling, distant soft city ambience, soft footsteps "
+        "splashing lightly on the wet pavement, occasional faint distant traffic rumble.\n\n"
         "non_diegetic_music: N/A"
     )
 

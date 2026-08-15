@@ -1,0 +1,95 @@
+# opencode 任务书：动作原语库第三期 —— 评级 prompt 修正 + 原语模板 + 素材自动获取
+
+# 执行环境：宿主机 Windows，项目 D:\motion-library\，仓库 Gousting/motion-library
+# 背景：两轮实验已验证（详见 motion_library_run.log）——
+#   1) 88 分可复现（原便利店 prompt 原样重跑得 85）
+#   2) 跨场景复用成立（同一 walk 模板只换场景便利店→空车站月台，得 82，三项全 true）
+#   结论：动作原语库「攒一次跨场景复用」这条路通。真正决定动作成败的不是场景丰富度，
+#   是 prompt 里的机位措辞——必须「走向并越过镜头 + 镜头后拉跟拍」，场景只要别写
+#   「单点透视往远处退」这种诱导推镜的措辞。
+# 本期目标：把评级 prompt 修正为验证过的模式，建立原语模板表，写素材自动获取脚本。
+
+## 硬性红线
+1. 每完成一个子任务立即 git add -A && git commit && git push
+2. 评级脚本只调 ComfyUI HTTP API，不读写权重文件
+3. 元数据 yaml；报告只写已实现项
+4. 不要擅自改入库阈值（≥80 A / 70-79 B / <70 弃用）和元数据规范
+
+## 任务一：修正 build_rating_prompt（当前是坏的，产出 42 分）
+
+现在 `scripts/r2v.py` 的 `build_rating_prompt` 场景写的是「rainy night city street ... sidewalk
+receding into the distance in clear one-point perspective」——这句「one-point perspective 往远处退」
+诱导模型做推镜、把走路压没，实测 42 分。必须修。
+
+验证过的黄金模板是 `D:\motion-library\assets\r2v_prompt_v2.txt`（85 分），其关键结构：
+- `<Picture 1>` 角色身份段（阿迟外观，一字不动）
+- `<Video 1>` 动作段：显式持续运动 + 「must NOT stand still」
+- `integrated_multimodal_description`：**场景地点 + 明确的「walks toward and past the camera
+  ... camera slowly tracking backward」机位措辞 + 新海诚风格尾巴**
+- overall_soundscape / non_diegetic_music 两段
+
+修正要求：把场景换成验证过的便利店模式（或等价的安全场景），机位措辞照抄
+「toward and past the camera ... tracking backward」，**删掉所有 one-point perspective /
+receding into the distance / vanishing point 之类诱导推镜的词**。
+
+## 任务二：建立原语模板表（PRIMITIVE_TEMPLATES）
+
+把现在 `scripts/r2v.py` 里的 `default_action_desc()`（只按 action_type 给一句动作）升级为
+完整的原语模板表，每个原语含：motion（肢体动作描述）+ camera（机位措辞）+ scene_prop（该动作
+需要的场景道具，无则空）。`build_rating_prompt(primitive_id)` 按模板组装出完整 prompt，
+结构完全对齐黄金模板。
+
+第一期先建这 11 个原语（覆盖微剧情 90% 镜头），motion/camera 措辞参考下面，英文撰写、
+仿照黄金模板的「持续运动」风格，**禁止出现 receding/vanishing/one-point perspective**：
+
+| primitive_id | motion 意图 | camera 意图 | scene_prop |
+| --- | --- | --- | --- |
+| walk_toward | 走向并越过镜头，步态循环 | 镜头后拉跟拍 | 无 |
+| walk_away | 背对镜头走远 | 静止或轻微缓慢跟随 | 无 |
+| run_toward | 跑向并越过镜头 | 镜头后拉跟拍 | 无 |
+| turn | 原地转身 180° | 中景静止 | 无 |
+| sit | 自然坐下 | 静止 | 长椅/凳子 |
+| stand | 自然起身 | 静止 | 长椅/凳子 |
+| reach_grab | 伸手拿取物体 | 静止或轻微推近 | 桌子+物件 |
+| open_door | 开门并迈过 | 静止 | 门 |
+| wave | 挥手 | 近景静止 | 无 |
+| nod | 点头 | 近景静止 | 无 |
+| head_turn | 转头看向一侧 | 近景静止 | 无 |
+
+其中 walk_toward 的 motion+camera 措辞**一字照抄黄金模板**（已验证 85 分），其余原语
+沿用同样句式仿写。保留 `default_action_desc()` 作向后兼容（或标注 deprecate，看哪个更干净）。
+
+## 任务三：素材自动获取脚本 scripts/fetch_stock.py
+
+Pixabay API 客户端，配置驱动、key 占位：
+- config.yaml 加 `stock:` 段：`provider: pixabay`、`api_key: YOUR_PIXABAY_API_KEY`（占位，
+  真实值放 .env 的 `MOTIONLIB_PIXABAY_API_KEY`）、每个原语的搜索词映射
+- 脚本 CLI：`python scripts/fetch_stock.py --primitive walk_toward --limit 5 --out work/raw/`
+  → 按搜索词调 Pixabay video API，下载候选 mp4 到 work/raw/<primitive_id>/
+- 搜索词映射示例（可调，务必落到「肢体/全身动作」而非「场景风景」）：
+  walk_toward→"walking legs feet"、walk_away→"walking away back view"、
+  run_toward→"running"、turn→"turning around"、sit→"sitting down bench"、
+  stand→"standing up chair"、reach_grab→"reaching grabbing object"、
+  open_door→"opening door"、wave→"waving hand"、nod→"nodding head"、
+  head_turn→"turning head"
+- 下载后打印候选清单（id + 时长 + 分辨率 + 尺寸），**不做入库验证**（那是下一期拿到 key 后
+  逐个跑 R2V 的事）
+- 未配置 key 时运行要给出清晰报错「请先在 .env 设 MOTIONLIB_PIXABAY_API_KEY」，不要静默失败
+
+## 任务四：单测 + 文档
+
+1. 单测（tests/）：`build_rating_prompt` 不含 one-point perspective / receding / vanishing；
+   每个原语模板组装出的 prompt 含 `<Picture 1>`、`<Video 1>`、`must NOT stand still`、
+   该原语的 camera 措辞；fetch_stock 的搜索词映射完整性（11 个原语都有词）
+2. README 增补「动作原语」一节：原语列表 + 黄金模板说明（机位措辞是关键）+ 素材获取用法 +
+   Pixabay key 配置说明
+3. motion_library_report.txt 追加「第三期」一节
+4. pytest 全绿 + 每步 push
+
+## 验收
+1. build_rating_prompt 修正：无诱导推镜措辞，walk_toward 组装的 prompt 与黄金模板等价（机位
+   措辞一致），git push
+2. PRIMITIVE_TEMPLATES 落地，11 原语模板齐全，git push
+3. fetch_stock.py 落地，未配 key 时清晰报错，git push
+4. pytest 全绿（含新增测试），git push
+5. README + report 同步，git push

@@ -1,0 +1,9 @@
+<Picture 1> is the character identity reference. The character in this shot is Achi, a lean young man in his late twenties with East Asian features, slightly messy black short hair with a few raindrops, thin-rimmed glasses, wearing a half-wet dark grey wool overcoat over a dark shirt, and a dark canvas messenger bag across his chest. His identity, face, hairstyle, glasses, and outfit must stay exactly consistent with <Picture 1>. He must NOT become the person appearing in <Video 1>.
+
+<Video 1> is the motion reference. The character performs the exact same natural walking gait cycle shown in <Video 1>: legs stepping forward in a steady rhythmic stride, feet lifting and planting, body weight shifting from one foot to the other, walking continuously without stopping.
+
+integrated_multimodal_description: A rainy night in front of a glowing convenience store, Makoto Shinkai anime film style. Achi walks continuously toward and past the camera with the same natural walking gait cycle shown in <Video 1>, his legs stepping in a steady rhythm, the camera slowly tracking backward to follow him. Text-free glowing neon sign boards, puddles on the wet ground reflecting the warm neon lights, a layered gradient night sky, gentle raindrops falling. Beautiful detailed lighting, neon reflections on wet ground, layered gradient sky, bokeh, cinematic composition, Makoto Shinkai anime film style.
+
+overall_soundscape: gentle steady rain falling, distant soft city ambience, soft footsteps splashing lightly on the wet pavement, occasional faint distant traffic rumble.
+
+non_diegetic_music: N/A
