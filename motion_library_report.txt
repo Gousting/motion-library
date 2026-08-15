@@ -191,3 +191,75 @@ ai-video-pipeline（origin/main）：
 ### commit 列表（本期）
 - 266aaa2 第二期：评级场景从中性灰升级为标准丰富场景（雨夜城市街道）+ 测试同步 + 新增回归测试（pytest 39 passed）
 - 39308f9 第二期文档同步：README 已知限制/评级标准化段落 + report 追加二期（改动 + 实测重新标定 42 分）
+
+## 十一、第三期：评级 prompt 修正 + 原语模板表 + 素材自动获取（2026-08-15）
+
+### 一、评级 prompt 修正（build_rating_prompt，此前 42 分的根因修复）
+- 根因定位：不是场景不够丰富，是机位措辞诱导推镜——「one-point perspective / sidewalk receding
+  into the distance」让模型做推镜、把走路压没（第二期实测 42 分）。真正决定动作成败的是机位措辞：
+  「走向并越过镜头 + 镜头后拉跟拍」。
+- 修正：评级场景换回验证过的黄金模板（assets/r2v_prompt_v2.txt，实测 85 分可复现、跨场景复用成立）
+  ——雨夜便利店门口，机位照抄「Achi walks continuously toward and past the camera ... the camera
+  slowly tracking backward to follow him」。删除全部 one-point perspective / receding /
+  vanishing 措辞。逐字对齐校验：walk_toward 组装结果的 <Picture 1> / integrated / 声景 / 音乐
+  四段与黄金模板逐字节一致，<Video 1> 段仅多出任务要求的「must NOT stand still」一句。
+- scripts/vlm_review.py：审查场景描述同步为「雨夜便利店门口」（与评级 prompt 一致）。
+
+### 二、原语模板表 PRIMITIVE_TEMPLATES（11 原语）
+- scripts/r2v.py 新增 PRIMITIVE_TEMPLATES，覆盖微剧情 90% 镜头：
+  walk_toward / walk_away / run_toward / turn / sit / stand / reach_grab / open_door /
+  wave / nod / head_turn。
+- 每个原语含 motion_name（动作名）/ motion（肢体动作）/ action（主句）/ manner（伴随状语）/
+  camera（机位措辞）/ scene_prop（场景道具，无则空）。
+- walk_toward 的 motion/camera 一字照抄黄金模板（85 分已验证），其余原语沿用同样句式仿写
+  （英文、持续运动风格），全部不含 receding / vanishing / one-point perspective。
+- build_rating_prompt(primitive_id="walk_toward") 按模板组装完整 prompt，结构与黄金模板一致；
+  未知原语报 ValueError。
+- default_action_desc() 保留（向后兼容，标注弃用）。run_r2v / ingest 迁移到 primitive_id：
+  ingest 新增 --primitive，缺省按 action_type 映射（ACTION_TYPE_TO_PRIMITIVE：walk→walk_toward、
+  run→run_toward、turn→turn、sit→sit、hand/gesture→wave、flip→reach_grab、jump→run_toward、
+  dance→turn）；--action-desc 弃用保留兼容。
+
+### 三、素材自动获取 scripts/fetch_stock.py（Pixabay）
+- config.yaml 新增 stock 段：provider=pixabay / api_key=YOUR_PIXABAY_API_KEY（占位符，真实值放
+  .env 的 MOTIONLIB_PIXABAY_API_KEY）/ per_page / search_terms（11 原语搜索词，落到肢体/全身动作，
+  可覆盖）。scripts/config.py 新增 get_stock_api_key() 解析 .env / 环境变量。
+- CLI：python scripts/fetch_stock.py --primitive walk_toward --limit 5 --out work/raw/
+  → 按搜索词调 Pixabay video API，下载候选 mp4 到 work/raw/<primitive>/，打印清单
+  （id + 时长 + 分辨率 + 尺寸）。只下载候选 + 展示清单，不做入库验证（下一期拿到满意的候选后
+  逐个跑 R2V 评级入库）。
+- 未配置 key 时清晰报错「请先在 .env 设 MOTIONLIB_PIXABAY_API_KEY」，不静默失败。
+- 踩坑修复：Pixabay 边缘会 RST 默认 python-requests UA，改为浏览器 UA + 重试。
+- 真 key 实测：walk_toward（搜索词 "walking legs feet"）真实拉取并下载 5 候选成功。
+
+### 四、测试与文档
+- 新增/更新单测（pytest 50 passed）：
+  * build_rating_prompt 各原语不含 one-point perspective / receding / vanishing（黑名单守护）
+  * 每个原语模板组装的 prompt 均含 <Picture 1> / <Video 1> / must NOT stand still / 该原语 camera 措辞
+  * PRIMITIVE_TEMPLATES 完整性（11 原语、字段齐全）
+  * walk_toward 与黄金模板关键段逐字等价
+  * fetch_stock 搜索词映射完整性（11 原语全有词）、清晰度档位挑选、占位 key 视为未配置、
+    未配 key 清晰报错
+- README 增补「动作原语」一节（原语列表 + 黄金模板说明 + 素材获取用法 + Pixabay key 配置），
+  评级标准化段落同步为黄金便利店场景，已知限制更新（42 分问题已解决），ingest 命令补 --primitive。
+
+### 五、验证结果（已实现项）
+1. walk_toward 组装 prompt 与黄金模板（85 分）逐字节对齐校验通过（4 段一致，Video 段多一句
+   must NOT stand still）。
+2. 11 原语全部可组装、无诱导推镜措辞、machine/camera 措辞齐全。
+3. fetch_stock.py 真 key 实测 walk_toward 5 候选下载成功（id 3627/3171/2302 等，medium 档，
+   1280x720，1.5-4.8MB）。
+4. pytest 全绿：50 passed（评级边界 / meta 校验 / index 登记 / R2V 工作流 / 原语模板 /
+   fetch_stock 映射与报错）。
+
+### 六、下一期建议
+- 拿到满意的候选素材后，逐个跑 R2V 评级验证，达标（A/B 级）再 ingest 入库。
+- 可按需扩充 PRIMITIVE_TEMPLATES（如 jump / dance 专属原语），或为 sit/stand/reach_grab/open_door
+  等需要道具的原语补充真实候选素材（当前 Pixabay 候选以走路/跑步/挥手为主）。
+- 未改入库阈值（≥80 A / 70-79 B / <70 弃用）与元数据规范。
+
+### commit 列表（本期）
+- a806562 第三期任务一：build_rating_prompt 修正（黄金便利店机位）+ VLM 场景同步 + 防推镜回归测试 + 黄金模板入库
+- e046a1e 第三期任务二：PRIMITIVE_TEMPLATES 11 原语 + build_rating_prompt(primitive_id) + run_r2v/ingest 迁移
+- c3820a9 第三期任务三：fetch_stock.py + config.yaml stock 段 + 搜索词映射/报错单测（真 key 实测下载成功）
+- （本条）第三期任务四：测试补全（原语全量黑名单/结构/camera 守护）+ README/report 文档同步

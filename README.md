@@ -27,11 +27,13 @@ motion-library/
 ├── README.md                  # 本文件（入库规范 + 验收标准 + 与 ai-video-pipeline 的关系）
 ├── config.yaml                # ComfyUI / R2V 模型 / VLM / 评级阈值配置（密钥占位符）
 ├── assets/
-│   └── test_character.png     # 固定测试角色图（评级标准参照，阿迟东方面孔定妆图）
+│   ├── test_character.png     # 固定测试角色图（评级标准参照，阿迟东方面孔定妆图）
+│   └── r2v_prompt_v2.txt      # 黄金评级 prompt（雨夜便利店，实测 85 分，原语模板对齐基准）
 ├── scripts/
 │   ├── ingest.py              # 入库脚本（预处理 → R2V 验证 → VLM 三项 → 评级 → 写 meta + index）
+│   ├── fetch_stock.py         # 素材自动获取（Pixabay video API，按原语下载候选，不做入库验证）
 │   ├── preprocess.py          # ffmpeg 预处理（裁 3-5s / 24fps / 1344x768 / 去遮挡）
-│   ├── r2v.py                 # ComfyUI R2V 调用（MiniMaxH3ReferenceToVideo，只调 HTTP API）
+│   ├── r2v.py                 # ComfyUI R2V 调用（只调 HTTP API）+ PRIMITIVE_TEMPLATES 原语模板表
 │   ├── vlm_review.py          # VLM 三项审查（char_locked / motion_natural / spatial_stable）
 │   ├── rating.py              # 评级映射（score→grade 纯函数）+ index 登记逻辑
 │   ├── schemas.py             # meta.yaml 字段规范 + 完整性校验
@@ -104,11 +106,10 @@ r2v_checks:
 | B | 中景或轻微遮挡 | 70-79 | 入库，标注风险 |
 | C | 全景 / 背影 | < 70 | **弃用，不入库不写 meta** |
 
-评级标准化（保证不同动作模板之间可比）：评级时场景固定为**标准丰富场景**（雨夜城市街道），
-用**固定测试角色图**（`assets/test_character.png`），VLM 只审查三项动作迁移质量
-（`char_locked` / `motion_natural` / `spatial_stable`），**不评画面美感**——评级的是「动作模板的可用性」，
-不是出片好看程度。场景固定为标准丰富场景：既固定保证可比，又给足空间上下文让模型「合理化」动作
-（此前中性灰太贫瘠，易触发静态肖像模式，见下方已知限制）。
+评级标准化（保证不同动作模板之间可比）：评级时 prompt 由**原语模板**（见下节）组装，场景固定为
+**雨夜便利店黄金场景**（`assets/r2v_prompt_v2.txt`，实测 85 分可复现），用**固定测试角色图**
+（`assets/test_character.png`），VLM 只审查三项动作迁移质量（`char_locked` / `motion_natural` /
+`spatial_stable`），**不评画面美感**——评级的是「动作模板的可用性」，不是出片好看程度。
 
 自动评级 = R2V 评分 + VLM 三项判断 → A / B / C：
 
@@ -124,6 +125,60 @@ r2v_checks:
 > 第二期重新标定：换成「雨夜城市街道」标准丰富场景后，同种子同参数实测仍为 42 分、
 > `motion_natural=false`（角色僵立只推镜），说明光改场景不足以恢复动作迁移，该问题尚未完全解决。
 > 种子 `walk_slow_legs_001` 的 `r2v_score=88` 仍来自之前「雨夜便利店」场景验证（详见 report 第二期）。
+>
+> **已解决（三期，2026-08-15）**：根因定位——不是场景不够丰富，是机位措辞诱导推镜：
+> 「one-point perspective / sidewalk receding into the distance」让模型做推镜、把走路压没（42 分）。
+> 评级 prompt 已按黄金模板（`assets/r2v_prompt_v2.txt`，实测 85 分可复现、跨场景复用成立）修正为
+> 「走向并越过镜头 + 镜头后拉跟拍」，并建立下方原语模板表，评级 prompt 禁止任何诱导推镜措辞。
+
+## 动作原语（PRIMITIVE_TEMPLATES）
+
+评级/生成 prompt 不再手写，由 `scripts/r2v.py` 的原语模板表组装：`build_rating_prompt(primitive_id)`
+按黄金模板结构（`<Picture 1>` 身份锁 + `<Video 1>` 动作锁 + integrated 场景机位 + 声景两段）输出。
+
+| primitive_id | 动作 | 机位 | 场景道具 |
+| --- | --- | --- | --- |
+| `walk_toward` | 走向并越过镜头，步态循环 | 镜头后拉跟拍 | 无 |
+| `walk_away` | 背对镜头走远 | 几乎静止、极缓跟随 | 无 |
+| `run_toward` | 跑向并越过镜头 | 镜头后拉跟拍 | 无 |
+| `turn` | 原地转身 180° | 中景静止 | 无 |
+| `sit` | 自然坐下 | 静止 | 长椅 |
+| `stand` | 自然起身 | 静止 | 长椅 |
+| `reach_grab` | 伸手拿取物体 | 静止/轻微缓慢推近 | 桌子+物件 |
+| `open_door` | 开门并迈过 | 静止 | 门 |
+| `wave` | 挥手 | 近景静止 | 无 |
+| `nod` | 点头 | 近景静止 | 无 |
+| `head_turn` | 转头看向一侧 | 近景静止 | 无 |
+
+**黄金模板说明（机位措辞是关键）**：两轮实验结论——决定动作成败的不是场景丰富度，是 prompt 里的
+机位措辞：必须「走向并越过镜头（toward and past the camera）+ 镜头后拉跟拍（camera slowly
+tracking backward）」。`walk_toward` 的 motion/camera 一字照抄黄金模板（实测 85 分），其余原语
+沿用同句式仿写。评级 prompt 严禁 `one-point perspective` / `receding into the distance` /
+`vanishing point` 等诱导推镜措辞（曾把走路压没，实测 42 分，有回归测试守护）。
+
+## 素材自动获取（fetch_stock.py）
+
+按原语从 Pixabay 下载候选动作素材（**只下载 + 打清单，不做入库验证**——入库要逐个跑 R2V 评级）：
+
+```bash
+python scripts/fetch_stock.py --primitive walk_toward --limit 5 --out work/raw/
+# → 按 config.yaml stock.search_terms 的搜索词调 Pixabay video API
+# → 下载候选 mp4 到 work/raw/walk_toward/，打印清单（id + 时长 + 分辨率 + 尺寸）
+```
+
+- 搜索词映射在 `config.yaml` 的 `stock.search_terms`（按原语可调，务必落到「肢体/全身动作」而非「场景风景」）。
+- 候选下载落在 `work/`（已 gitignore），拿到满意的素材后再走 `ingest.py` 入库流程。
+
+**Pixabay key 配置**：`config.yaml` 的 `stock.api_key` 只是占位符，真实密钥放项目根目录 `.env`
+（已 gitignore，永不提交）：
+
+```bash
+# .env（不入库）
+MOTIONLIB_PIXABAY_API_KEY=xxxxxxxxxxxxxxxxxxxxxxxxxx
+```
+
+未配置时运行 `fetch_stock.py` 会清晰报错「请先在 .env 设 MOTIONLIB_PIXABAY_API_KEY」。
+Pixabay 素材可商用，入库时 `source_type=stock`、`license=pexels-free`、`source_url` 记录凭证。
 
 ## 入库验收流程
 
@@ -137,8 +192,11 @@ r2v_checks:
 
 ```bash
 python scripts/ingest.py --video <候选视频> --action-type walk --camera closeup --body-part legs \
-    --source-type stock --source-url <url> --license pexels-free [--style-pollution]
+    --source-type stock --source-url <url> --license pexels-free [--primitive walk_toward] [--style-pollution]
 ```
+
+- `--primitive` 指定评级用的原语模板；缺省按 action-type 映射（walk→walk_toward、run→run_toward、
+  turn→turn、sit→sit，见 `scripts/r2v.py` 的 `ACTION_TYPE_TO_PRIMITIVE`）。
 
 - 评级脚本调 ComfyUI HTTP API（`MiniMaxH3ReferenceToVideo` 节点 + ref2va 权重），**不直接读写权重文件**
   （权重物理位置对脚本透明，跟 image-gen 调 Z-Image 一个道理）。
@@ -164,7 +222,8 @@ ai-video-pipeline 出片时「风格名 + 动作 ID」一起传：
 
 ```bash
 # .env（不入库）
-MOTIONLIB_VLM_API_KEY=sk-xxxx   # VLM 审查模型密钥
+MOTIONLIB_VLM_API_KEY=sk-xxxx          # VLM 审查模型密钥
+MOTIONLIB_PIXABAY_API_KEY=xxxxxxxxxx   # Pixabay 素材源密钥（fetch_stock.py 用）
 ```
 
 加载优先级：`config.yaml` → `.env` → 进程环境变量（最高）。

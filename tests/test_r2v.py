@@ -2,7 +2,42 @@
 from pathlib import Path
 
 from scripts.preprocess import build_preprocess_cmd
-from scripts.r2v import build_rating_prompt, build_workflow, default_action_desc
+from scripts.r2v import (
+    PRIMITIVE_TEMPLATES,
+    build_rating_prompt,
+    build_workflow,
+    default_action_desc,
+)
+
+# 诱导推镜措辞黑名单（两轮实验验证：它们会把走路压没，实测 42 分）
+FORBIDDEN_DOLLY_WORDS = ("one-point perspective", "receding", "vanishing point")
+
+
+def test_all_primitives_no_dolly_trigger_words():
+    for pid in PRIMITIVE_TEMPLATES:
+        low = build_rating_prompt(pid).lower()
+        for bad in FORBIDDEN_DOLLY_WORDS:
+            assert bad not in low, f"原语 {pid} 含诱导推镜措辞 {bad!r}"
+
+
+def test_all_primitives_have_golden_structure_and_camera():
+    for pid, t in PRIMITIVE_TEMPLATES.items():
+        p = build_rating_prompt(pid).lower()
+        assert "<picture 1>" in p, pid
+        assert "<video 1>" in p, pid
+        assert "must not stand still" in p, pid
+        assert t["camera"].lower() in p, f"原语 {pid} 缺机位措辞"
+
+
+def test_primitive_table_complete():
+    assert len(PRIMITIVE_TEMPLATES) == 11
+    assert set(PRIMITIVE_TEMPLATES) == {
+        "walk_toward", "walk_away", "run_toward", "turn", "sit", "stand",
+        "reach_grab", "open_door", "wave", "nod", "head_turn",
+    }
+    for pid, t in PRIMITIVE_TEMPLATES.items():
+        assert t["motion"] and t["camera"], pid
+        assert "scene_prop" in t, pid  # 场景道具字段必须存在（无道具则为空字符串）
 
 
 def test_rating_prompt_has_picture_and_video():
